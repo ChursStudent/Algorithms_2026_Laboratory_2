@@ -1,5 +1,18 @@
 package lab;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Scanner;
+
+import static lab.AnyBmpToRaw.BTR;
+import static lab.AnyRawToBmp.RTB;
+import static lab.YCbCrConverter.fromYCbCr;
+import static lab.YCbCrConverter.toYCbCr;
+import static lab.byteReader.readBytes;
+import static lab.readMetaForYCbCr.readMetaYCC;
+
 public class interpolate {
     public static int interpolateLin(int x, int x1, int x2, int y1, int y2) { //x E (x1; x2)
         if (x2 > x1) {
@@ -56,7 +69,7 @@ public class interpolate {
                 int[] PixelBlock = getPixel(YCbCr, curX, curY, oldW, oldH); //12
                 bilinPixel = new int[3];
                 for (int i = 0; i < 3; i++) {
-                    bilinPixel[i] = interpolateBilin(curX - (int)curX, curY - (int)curY, 0, 1, 0, 1, PixelBlock[i], PixelBlock[3+i], PixelBlock[6+i], PixelBlock[9+i]);
+                    bilinPixel[i] = interpolateBilin(curX % 1, curY % 1, 0, 1, 0, 1, PixelBlock[i], PixelBlock[3+i], PixelBlock[6+i], PixelBlock[9+i]);
                 }
                 newYCbCr[index] = (byte)bilinPixel[0];
                 index++;
@@ -69,5 +82,62 @@ public class interpolate {
             curY += KH;
         }
         return newYCbCr;
+    }
+
+    public static void main(String[] args) throws IOException {
+        Scanner in = new Scanner(System.in);
+
+        System.out.println("1 - интерполировать, 2 - масштабировать ");
+        int choice = in.nextInt();
+        if (choice == 1) {
+            int bilin = interpolateBilin(0, 0.3, 0, 1, 0, 1, 100, 150, 150, 200);
+            System.out.println("результат билин. интерполяции: " + bilin);
+        } else {
+            System.out.println("Введите имя bmp файла без расширения ");
+            in = new Scanner(System.in);
+            String FileName = in.nextLine();
+            String RawFileName = BTR(FileName);
+            String RawYCbCr = toYCbCr(RawFileName);
+
+            byte[] Meta = readMetaYCC(RawYCbCr);
+
+            byte[] oldFile = readBytes(RawYCbCr + ".raw");
+            ;
+            byte[] YCbCrOld = new byte[oldFile.length - Meta.length];
+            System.arraycopy(oldFile, Meta.length, YCbCrOld, 0, oldFile.length - Meta.length);
+
+            StringBuilder wid = new StringBuilder();
+            StringBuilder hei = new StringBuilder();
+            int skip = 0;
+            while (oldFile[skip] != (byte) 'x' && skip < oldFile.length - 1) {
+                wid.append((char) oldFile[skip]);
+                skip++;
+            }
+            skip++;
+            while (oldFile[skip] != (byte) 'Y' && oldFile[skip] != (byte) 'y' && oldFile[skip] != (byte) 'b' && skip < oldFile.length - 1) {
+                hei.append((char) oldFile[skip]);
+                skip++;
+            }
+            int oldWidth = Integer.parseInt(wid.toString());
+            int oldHeight = Integer.parseInt(hei.toString());
+
+
+            System.out.println("Введите новую ширину изображения ");
+            int newWidth = in.nextInt();
+            System.out.println("Введите новую высоту изображения ");
+            int newHeight = in.nextInt();
+
+            byte[] YCbCr = resizeImg(YCbCrOld, oldWidth, oldHeight, newWidth, newHeight);
+
+            byte[] Meta2 = (String.valueOf(newWidth) + 'x' + newHeight + (char) (Meta[Meta.length - 1] & 0xFF)).getBytes(StandardCharsets.ISO_8859_1);
+            byte[] RawYCC = new byte[Meta2.length + YCbCr.length];
+            System.arraycopy(Meta2, 0, RawYCC, 0, Meta.length);
+            System.arraycopy(YCbCr, 0, RawYCC, Meta.length, YCbCr.length);
+            Files.write(Paths.get(FileName + "Resized.raw"), RawYCC);
+            String RawFileName2 = fromYCbCr(FileName + "Resized");
+            Files.delete(Paths.get(FileName + "Resized.raw"));
+            RTB(RawFileName2);
+            Files.delete(Paths.get(RawFileName + ".raw"));
+        }
     }
 }
